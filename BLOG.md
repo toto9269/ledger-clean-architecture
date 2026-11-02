@@ -3,7 +3,7 @@
 > 클린 아키텍처, 컴포넌트 원칙, SOLID를 공부하고 나서 예전에 만든 가계부 백엔드를 처음부터 다시 설계해 봤습니다. 왜 바꿨는지, 어떻게 나눴는지, 직접 해 보니 무엇이 좋고 무엇이 번거로웠는지 정리합니다.
 
 - 사용 기술: Java 17, Spring Boot 3.3, Spring Data JPA, H2, JUnit 5, ArchUnit
-- 소스 코드: (GitHub 저장소 링크)
+- 소스 코드: https://github.com/toto9269/ledger-clean-architecture
 
 ---
 
