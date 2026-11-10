@@ -1,12 +1,14 @@
 package com.example.ledger.adapter.in.web;
 
 import com.example.ledger.application.port.in.AddExpenseUseCase;
+import com.example.ledger.application.port.in.DeleteExpensesUseCase;
 import com.example.ledger.application.port.in.GetExpenseImageUseCase;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +25,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /** HTTP 요청을 유스케이스 명령으로 바꿔 넘긴다. 비즈니스 규칙은 두지 않는다. */
 @RestController
@@ -31,12 +34,21 @@ class ExpenseController {
 
     private final AddExpenseUseCase addExpenseUseCase;
     private final GetExpenseImageUseCase getExpenseImageUseCase;
+    private final DeleteExpensesUseCase deleteExpensesUseCase;
     private final Clock clock;
 
-    ExpenseController(AddExpenseUseCase addExpenseUseCase, GetExpenseImageUseCase getExpenseImageUseCase, Clock clock) {
+    ExpenseController(AddExpenseUseCase addExpenseUseCase, GetExpenseImageUseCase getExpenseImageUseCase,
+                      DeleteExpensesUseCase deleteExpensesUseCase, Clock clock) {
         this.addExpenseUseCase = addExpenseUseCase;
         this.getExpenseImageUseCase = getExpenseImageUseCase;
+        this.deleteExpensesUseCase = deleteExpensesUseCase;
         this.clock = clock;
+    }
+
+    /** 여러 건을 한 번에 지운다. 딸린 이미지도 함께 지워진다. 예: DELETE /api/expenses?ids=1,2,3 */
+    @DeleteMapping
+    Map<String, Integer> delete(@RequestParam(required = false) List<Long> ids) {
+        return Map.of("deleted", deleteExpensesUseCase.delete(ids == null ? List.of() : ids));
     }
 
     @PostMapping

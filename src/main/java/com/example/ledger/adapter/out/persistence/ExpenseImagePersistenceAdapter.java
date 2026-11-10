@@ -41,4 +41,9 @@ class ExpenseImagePersistenceAdapter implements ExpenseImagePort {
         return repository.findById(imageId)
                 .map(entity -> new ExpenseImage(entity.getContentType(), entity.getData()));
     }
+
+    @Override
+    public void deleteByExpenseIds(Collection<Long> expenseIds) {
+        repository.deleteByExpenseIdIn(expenseIds);
+    }
 }

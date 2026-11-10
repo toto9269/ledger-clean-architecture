@@ -128,6 +128,17 @@ class AddExpenseServiceTest {
         }
 
         @Override
+        public void deleteByExpenseIds(Collection<Long> expenseIds) {
+            imageOwners.entrySet().removeIf(entry -> {
+                boolean owned = expenseIds.contains(entry.getValue());
+                if (owned) {
+                    images.remove(entry.getKey());
+                }
+                return owned;
+            });
+        }
+
+        @Override
         public Expense save(Expense expense) {
             Expense saved = Expense.of((long) expenses.size() + 1,
                     expense.getAmount(), expense.getCategory(), expense.getSpentAt(), expense.getMemo());

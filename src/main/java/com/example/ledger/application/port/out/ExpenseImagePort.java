@@ -16,4 +16,7 @@ public interface ExpenseImagePort {
     Map<Long, List<Long>> loadImageIds(Collection<Long> expenseIds);
 
     Optional<ExpenseImage> load(long imageId);
+
+    /** 지출에 딸린 이미지를 모두 지운다. */
+    void deleteByExpenseIds(Collection<Long> expenseIds);
 }

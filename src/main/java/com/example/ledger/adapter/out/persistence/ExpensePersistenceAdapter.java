@@ -1,5 +1,6 @@
 package com.example.ledger.adapter.out.persistence;
 
+import com.example.ledger.application.port.out.DeleteExpensePort;
 import com.example.ledger.application.port.out.LoadExpensesPort;
 import com.example.ledger.application.port.out.SaveExpensePort;
 import com.example.ledger.domain.Expense;
@@ -7,10 +8,11 @@ import com.example.ledger.domain.MonthlyExpenses;
 import org.springframework.stereotype.Component;
 
 import java.time.YearMonth;
+import java.util.Collection;
 
 /** 지출 포트를 JPA 로 구현한다. DB 를 바꾸면 이 클래스만 새로 만들면 된다. */
 @Component
-class ExpensePersistenceAdapter implements SaveExpensePort, LoadExpensesPort {
+class ExpensePersistenceAdapter implements SaveExpensePort, LoadExpensesPort, DeleteExpensePort {
 
     private final ExpenseJpaRepository repository;
 
@@ -32,6 +34,11 @@ class ExpensePersistenceAdapter implements SaveExpensePort, LoadExpensesPort {
                 .stream()
                 .map(ExpensePersistenceAdapter::toDomain)
                 .toList());
+    }
+
+    @Override
+    public int deleteAll(Collection<Long> expenseIds) {
+        return repository.deleteByIdIn(expenseIds);
     }
 
     private static Expense toDomain(ExpenseJpaEntity entity) {

@@ -58,6 +58,10 @@
   .section-head h2 { margin: 0; }
   tfoot td { font-weight: 700; border-bottom: none; }
   button.sort { background: none; color: inherit; padding: 0; width: auto; font-size: inherit; }
+  .head-actions { display: flex; align-items: center; gap: 8px; }
+  button.danger { background: var(--danger); width: auto; }
+  input[type=checkbox] { width: 16px; height: 16px; padding: 0; margin: 0; vertical-align: middle; }
+  th.check, td.check { width: 28px; }
   .thumbs { display: flex; flex-wrap: wrap; gap: 4px; }
   .thumbs img { display: block; width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 </style>
@@ -130,10 +134,14 @@
   <section class="card">
     <div class="section-head">
       <h2>지출 목록</h2>
-      <select id="filter" aria-label="카테고리 필터"></select>
+      <div class="head-actions">
+        <select id="filter" aria-label="카테고리 필터"></select>
+        <button type="button" id="deleteSelected" class="danger" disabled>선택 삭제</button>
+      </div>
     </div>
     <table>
       <thead><tr>
+        <th class="check"><input type="checkbox" id="selectAll" aria-label="전체 선택"></th>
         <th><button type="button" class="sort" data-sort="spentAt">날짜</button></th>
         <th><button type="button" class="sort" data-sort="category">카테고리</button></th>
         <th>메모</th>
@@ -153,6 +161,9 @@
   const CATEGORIES = ['식비', '교통비', '유흥', '경조사', '생활용품', '기타'];
   let savedLimit = null;
   let lastReport = null;
+  // 지출 목록에서 체크한 지출 id 와, 지금 목록에 보이는 지출 id
+  const selected = new Set();
+  let visibleIds = [];
   // 앞에 있는 키가 우선. 날짜는 최근 날짜부터(내림차순), 카테고리는 가나다순으로 시작한다
   const SORT_LABELS = { spentAt: '날짜', category: '카테고리' };
   const DEFAULT_DIR = { spentAt: -1, category: 1 };
@@ -269,12 +280,36 @@
       const first = sortKeys[0];
       btn.textContent = SORT_LABELS[key] + (first.key === key ? (first.dir > 0 ? ' ▲' : ' ▼') : '');
     });
+    // 화면에 안 보이는 지출(다른 필터·다른 달)은 선택에서 빼서, 보이지 않는 건이 지워지지 않게 한다
+    visibleIds = items.map((e) => e.id);
+    [...selected].forEach((id) => { if (!visibleIds.includes(id)) selected.delete(id); });
     const list = $('expenses');
     list.replaceChildren();
-    if (!items.length) list.appendChild(emptyRow(5, '지출이 없습니다'));
-    items.forEach((e) => list.appendChild(row([[e.spentAt], [e.category], [e.memo || ''], [thumbnails(e.imageIds || [])], [won(e.amount), 'num']])));
+    if (!items.length) list.appendChild(emptyRow(6, '지출이 없습니다'));
+    items.forEach((e) => list.appendChild(row([[checkbox(e.id), 'check'], [e.spentAt], [e.category], [e.memo || ''], [thumbnails(e.imageIds || [])], [won(e.amount), 'num']])));
     const sum = items.reduce((acc, e) => acc + e.amount, 0);
-    $('expensesFoot').replaceChildren(row([['합계 (' + items.length + '건)'], [''], [''], [''], [won(sum), 'num']]));
+    $('expensesFoot').replaceChildren(row([[''], ['합계 (' + items.length + '건)'], [''], [''], [''], [won(sum), 'num']]));
+    updateDeleteButton();
+  }
+
+  function checkbox(id) {
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = selected.has(id);
+    box.setAttribute('aria-label', '선택');
+    box.addEventListener('change', () => {
+      if (box.checked) selected.add(id); else selected.delete(id);
+      updateDeleteButton();
+    });
+    return box;
+  }
+
+  function updateDeleteButton() {
+    const n = selected.size;
+    $('deleteSelected').disabled = n === 0;
+    $('deleteSelected').textContent = n ? '선택 삭제 (' + n + ')' : '선택 삭제';
+    $('selectAll').checked = visibleIds.length > 0 && n === visibleIds.length;
+    $('selectAll').indeterminate = n > 0 && n < visibleIds.length;
   }
 
   // 작은 썸네일을 나열하고, 누르면 원본을 새 탭에서 연다
@@ -337,6 +372,25 @@
 
   $('budgetLimit').addEventListener('input', () => updateBudgetSave(true));
   $('filter').addEventListener('change', renderExpenses);
+
+  $('selectAll').addEventListener('change', () => {
+    const on = $('selectAll').checked;
+    visibleIds.forEach((id) => { if (on) selected.add(id); else selected.delete(id); });
+    renderExpenses();
+  });
+
+  $('deleteSelected').addEventListener('click', () => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    if (!confirm('선택한 ' + ids.length + '건을 실제로 삭제하시겠습니까?\n첨부한 이미지도 함께 삭제되며 되돌릴 수 없습니다.')) return;
+    $('deleteSelected').disabled = true;
+    run(async () => {
+      const result = await api('DELETE', '/api/expenses?ids=' + ids.join(','));
+      show(result.deleted + '건을 삭제했습니다', 'ok');
+      selected.clear();
+      await loadReport();
+    }).finally(updateDeleteButton);
+  });
 
   // 표의 모든 칸에 얇은 테두리를 두르고, 숫자 열에는 표시 형식을 준다.
   // 제목 줄은 기본(11pt)보다 2pt 크게, 가운데 정렬, 회색 배경

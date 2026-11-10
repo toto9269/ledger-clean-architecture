@@ -10,6 +10,9 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.List;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -98,6 +101,62 @@ class LedgerApiTest {
 
         mockMvc.perform(get("/api/reports/2026-06"))
                 .andExpect(jsonPath("$.expenses.length()").value(0));
+    }
+
+    @Test
+    void 여러_건을_삭제하면_딸린_이미지도_함께_지워진다() throws Exception {
+        long first = addWithImage("2026-05-01");
+        long second = addWithImage("2026-05-02");
+        long kept = addWithImage("2026-05-03");
+        long firstImage = firstImageIdOf("2026-05", first);
+
+        mockMvc.perform(delete("/api/expenses").param("ids", first + "," + second))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(2));
+
+        mockMvc.perform(get("/api/reports/2026-05"))
+                .andExpect(jsonPath("$.expenses.length()").value(1))
+                .andExpect(jsonPath("$.expenses[0].id").value(kept))
+                .andExpect(jsonPath("$.expenses[0].imageIds.length()").value(1));
+        mockMvc.perform(get("/api/expenses/images/" + firstImage))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 없는_지출이_섞이면_아무것도_지우지_않는다() throws Exception {
+        long id = addWithImage("2026-04-01");
+        long imageId = firstImageIdOf("2026-04", id);
+
+        mockMvc.perform(delete("/api/expenses").param("ids", id + ",999999"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("이미 삭제됐거나 없는 지출이 포함되어 있습니다"));
+
+        mockMvc.perform(get("/api/reports/2026-04"))
+                .andExpect(jsonPath("$.expenses.length()").value(1));
+        mockMvc.perform(get("/api/expenses/images/" + imageId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 삭제할_지출을_고르지_않으면_400을_돌려준다() throws Exception {
+        mockMvc.perform(delete("/api/expenses").param("ids", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("삭제할 지출을 선택하세요"));
+    }
+
+    private long addWithImage(String spentAt) throws Exception {
+        MvcResult result = mockMvc.perform(multipart("/api/expenses")
+                        .file(new MockMultipartFile("images", "a.png", "image/png", new byte[]{1}))
+                        .param("amount", "1000").param("category", "식비").param("spentAt", spentAt))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return ((Number) JsonPath.read(result.getResponse().getContentAsString(), "$.expenseId")).longValue();
+    }
+
+    private long firstImageIdOf(String month, long expenseId) throws Exception {
+        String report = mockMvc.perform(get("/api/reports/" + month)).andReturn().getResponse().getContentAsString();
+        List<Number> ids = JsonPath.read(report, "$.expenses[?(@.id == " + expenseId + ")].imageIds[0]");
+        return ids.get(0).longValue();
     }
 
     @Test
