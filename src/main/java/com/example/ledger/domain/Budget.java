@@ -12,8 +12,8 @@ public class Budget {
     private final long limit;
 
     public Budget(YearMonth month, long limit) {
-        if (limit < 0) {
-            throw new IllegalArgumentException("예산은 0 이상이어야 합니다");
+        if (limit <= 0) {
+            throw new IllegalArgumentException("예산은 0보다 커야 합니다");
         }
         this.month = Objects.requireNonNull(month, "예산 월은 필수입니다");
         this.limit = limit;

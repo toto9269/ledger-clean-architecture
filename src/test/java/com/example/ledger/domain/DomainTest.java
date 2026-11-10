@@ -29,6 +29,12 @@ class DomainTest {
     }
 
     @Test
+    void 예산은_0보다_커야_한다() {
+        assertThatThrownBy(() -> new Budget(OCTOBER, 0))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void 예산을_넘으면_초과다() {
         Budget budget = new Budget(OCTOBER, 100_000);
 

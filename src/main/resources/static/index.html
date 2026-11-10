@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>가계부</title>
+<!-- SheetJS 에 셀 스타일(테두리) 쓰기를 더한 포크. 사용법은 SheetJS 와 같다 -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2563eb; --danger: #dc2626; --ok: #16a34a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b1f27; --text: #e6e8ec; --muted: #9aa1ad; --line: #2b313c;
+      --accent: #60a5fa; --danger: #f87171; --ok: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  form { display: flex; flex-direction: column; gap: 8px; }
+  label { font-size: 13px; color: var(--muted); }
+  input, select, button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+                  background: var(--bg); color: var(--text); width: 100%; }
+  button { background: var(--accent); color: #fff; border: none; cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .invalid { border-color: var(--danger); }
+  .field-error { margin: 0; font-size: 13px; color: var(--danger); }
+  .field-error:empty { display: none; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat .label { font-size: 13px; color: var(--muted); }
+  .stat .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .over { color: var(--danger); }
+  .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 12px; }
+  .bar > div { height: 100%; background: var(--accent); }
+  .bar.over > div { background: var(--danger); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+  th { font-size: 13px; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  .empty { color: var(--muted); padding: 8px 0; }
+  #msg { min-height: 1.5em; margin: 0 0 12px; }
+  #msg.error { color: var(--danger); }
+  #msg.warn { color: var(--danger); font-weight: 600; }
+  #msg.ok { color: var(--ok); }
+  #month, #filter, #export { width: auto; }
+  .header-actions { display: flex; gap: 8px; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .section-head h2 { margin: 0; }
+  tfoot td { font-weight: 700; border-bottom: none; }
+  button.sort { background: none; color: inherit; padding: 0; width: auto; font-size: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>가계부</h1>
+    <div class="header-actions">
+      <input type="month" id="month" aria-label="조회 월">
+      <button type="button" id="export">엑셀 다운로드</button>
+    </div>
+  </header>
+
+  <p id="msg" role="status"></p>
+
+  <section class="card">
+    <h2>월 요약</h2>
+    <div class="stats">
+      <div class="stat"><div class="label">예산</div><div class="value" id="limit">-</div></div>
+      <div class="stat"><div class="label">지출 합계</div><div class="value" id="total">-</div></div>
+      <div class="stat"><div class="label">남은 예산</div><div class="value" id="remaining">-</div></div>
+    </div>
+    <div class="bar" id="bar"><div style="width:0"></div></div>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>예산 설정</h2>
+      <form id="budgetForm" novalidate>
+        <label for="budgetLimit">월 예산 (원)</label>
+        <input id="budgetLimit" type="number" min="1" step="1" required>
+        <p class="field-error" id="budgetLimitError"></p>
+        <button type="submit" id="budgetSave" disabled>저장</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>지출 등록</h2>
+      <form id="expenseForm" novalidate>
+        <label for="amount">금액 (원)</label>
+        <input id="amount" type="number" min="1" step="1" required>
+        <p class="field-error" id="amountError"></p>
+        <label for="category">카테고리</label>
+        <select id="category" required>
+          <option value="" disabled selected>선택하세요</option>
+        </select>
+        <p class="field-error" id="categoryError"></p>
+        <label for="spentAt">날짜</label>
+        <input id="spentAt" type="date">
+        <button type="submit">등록</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>카테고리별 합계</h2>
+    <table>
+      <thead><tr><th>카테고리</th><th class="num">비율</th><th class="num">금액</th></tr></thead>
+      <tbody id="categories"></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <div class="section-head">
+      <h2>지출 목록</h2>
+      <select id="filter" aria-label="카테고리 필터"></select>
+    </div>
+    <table>
+      <thead><tr>
+        <th><button type="button" class="sort" data-sort="spentAt">날짜</button></th>
+        <th><button type="button" class="sort" data-sort="category">카테고리</button></th>
+        <th class="num">금액</th>
+      </tr></thead>
+      <tbody id="expenses"></tbody>
+      <tfoot id="expensesFoot"></tfoot>
+    </table>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const won = (n) => n == null ? '-' : n.toLocaleString('ko-KR') + '원';
+  const monthInput = $('month');
+  const CATEGORIES = ['식비', '교통비', '유흥', '경조사', '생활용품', '기타'];
+  let savedLimit = null;
+  let lastReport = null;
+  // 앞에 있는 키가 우선. 기본은 날짜 → 카테고리 오름차순
+  let sortKeys = [{ key: 'spentAt', dir: 1 }, { key: 'category', dir: 1 }];
+  const SORT_LABELS = { spentAt: '날짜', category: '카테고리' };
+
+  function compareExpenses(a, b) {
+    for (const { key, dir } of sortKeys) {
+      const c = a[key].localeCompare(b[key], 'ko') * dir;
+      if (c) return c;
+    }
+    return a.id - b.id;
+  }
+
+  // 정해진 6개 뒤에, 데이터에만 있는 카테고리(예전 데이터)를 붙인다
+  function categoryNames(totals) {
+    return CATEGORIES.concat(Object.keys(totals).filter((n) => !CATEGORIES.includes(n)));
+  }
+
+  CATEGORIES.forEach((name) => $('category').appendChild(new Option(name, name)));
+
+  // 예산이 없던 달이면 '저장', 이미 있으면 '수정'.
+  // 비었거나 0 이하면 오류를 보이고, 저장된 값과 같으면 바꿀 게 없으므로 버튼을 끈다
+  function updateBudgetSave(showError) {
+    const v = $('budgetLimit').value;
+    const error = v === '' ? '월 예산을 입력하세요' : Number(v) <= 0 ? '월 예산은 0보다 커야 합니다' : '';
+    if (showError) setError('budgetLimit', error);
+    $('budgetSave').disabled = !!error || Number(v) === savedLimit;
+    $('budgetSave').textContent = savedLimit == null ? '저장' : '수정';
+  }
+
+  function today() {
+    const d = new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  }
+
+  function show(text, kind) {
+    $('msg').textContent = text || '';
+    $('msg').className = kind || '';
+  }
+
+  async function api(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = res.status === 204 ? null : await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && (data.message || data.error)) || '요청 실패 (' + res.status + ')');
+    return data;
+  }
+
+  function row(cells) {
+    const tr = document.createElement('tr');
+    cells.forEach(([text, cls]) => {
+      const td = document.createElement('td');
+      td.textContent = text;
+      if (cls) td.className = cls;
+      tr.appendChild(td);
+    });
+    return tr;
+  }
+
+  function emptyRow(colspan, text) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = colspan; td.className = 'empty'; td.textContent = text;
+    tr.appendChild(td);
+    return tr;
+  }
+
+  async function loadReport() {
+    const r = await api('GET', '/api/reports/' + monthInput.value);
+    $('limit').textContent = won(r.budgetLimit);
+    $('total').textContent = won(r.total);
+    $('remaining').textContent = won(r.remaining);
+    const over = r.remaining != null && r.remaining < 0;
+    $('remaining').classList.toggle('over', over);
+    const pct = r.budgetLimit ? Math.min(100, r.total / r.budgetLimit * 100) : 0;
+    $('bar').classList.toggle('over', over);
+    $('bar').firstElementChild.style.width = pct + '%';
+    savedLimit = r.budgetLimit;
+    updateBudgetSave();
+
+    const cats = $('categories');
+    cats.replaceChildren();
+    // 정해진 6개는 지출이 없어도 0원으로 보인다
+    const totals = r.totalByCategory || {};
+    const names = categoryNames(totals);
+    names.forEach((name) => {
+      const sum = totals[name] || 0;
+      const pct = r.total ? Math.round(sum / r.total * 1000) / 10 + '%' : '-';
+      cats.appendChild(row([[name], [pct, 'num'], [won(sum), 'num']]));
+    });
+
+    lastReport = r;
+    const filter = $('filter');
+    const selected = filter.value;
+    filter.replaceChildren(new Option('전체', ''), ...names.map((n) => new Option(n, n)));
+    filter.value = names.includes(selected) ? selected : '';
+    renderExpenses();
+  }
+
+  // 고른 카테고리의 지출을 현재 정렬 순서로 나열하고 합계를 붙인다
+  function renderExpenses() {
+    const category = $('filter').value;
+    const items = (lastReport.expenses || [])
+      .filter((e) => !category || e.category === category)
+      .sort(compareExpenses);
+    document.querySelectorAll('button.sort').forEach((btn) => {
+      const key = btn.dataset.sort;
+      const first = sortKeys[0];
+      btn.textContent = SORT_LABELS[key] + (first.key === key ? (first.dir > 0 ? ' ▲' : ' ▼') : '');
+    });
+    const list = $('expenses');
+    list.replaceChildren();
+    if (!items.length) list.appendChild(emptyRow(3, '지출이 없습니다'));
+    items.forEach((e) => list.appendChild(row([[e.spentAt], [e.category], [won(e.amount), 'num']])));
+    const sum = items.reduce((acc, e) => acc + e.amount, 0);
+    $('expensesFoot').replaceChildren(row([['합계 (' + items.length + '건)'], [''], [won(sum), 'num']]));
+  }
+
+  async function run(action) {
+    try { await action(); } catch (e) { show(e.message, 'error'); }
+  }
+
+  monthInput.value = today().slice(0, 7);
+  $('spentAt').value = today();
+  monthInput.addEventListener('change', () => {
+    show('');
+    $('budgetLimit').value = '';
+    setError('budgetLimit');
+    run(loadReport);
+  });
+
+  $('budgetLimit').addEventListener('input', () => updateBudgetSave(true));
+  $('filter').addEventListener('change', renderExpenses);
+
+  // 표의 모든 칸에 얇은 테두리를 두르고, 숫자 열에는 표시 형식을 준다.
+  // 제목 줄은 기본(11pt)보다 2pt 크게, 가운데 정렬, 회색 배경
+  const THIN = { style: 'thin', color: { rgb: '999999' } };
+  const HEADER = { font: { sz: 13 }, alignment: { horizontal: 'center', vertical: 'center' }, fill: { fgColor: { rgb: 'D9D9D9' } } };
+  function styleSheet(sheet, formats) {
+    const range = XLSX.utils.decode_range(sheet['!ref']);
+    for (let r = 0; r <= range.e.r; r++) {
+      for (let c = 0; c <= range.e.c; c++) {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        const cell = sheet[ref] || (sheet[ref] = { t: 's', v: '' });
+        cell.s = { border: { top: THIN, bottom: THIN, left: THIN, right: THIN } };
+        if (r === 0) Object.assign(cell.s, HEADER);
+        if (r > 0 && cell.t === 'n' && formats[c]) cell.s.numFmt = formats[c];
+      }
+    }
+  }
+
+  // sheet1 은 카테고리별 합계(화면과 같은 6개 + 기타 데이터), sheet2 는 날짜 → 카테고리 순 지출 목록
+  function exportExcel() {
+    const r = lastReport;
+    const totals = r.totalByCategory || {};
+    const categories = XLSX.utils.aoa_to_sheet([
+      ['카테고리', '비율', '금액'],
+      ...categoryNames(totals).map((n) => [n, r.total ? (totals[n] || 0) / r.total : 0, totals[n] || 0]),
+      ['합계', r.total ? 1 : 0, r.total],
+    ]);
+    styleSheet(categories, { 1: '0.0%', 2: '#,##0' });
+    categories['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 14 }];
+
+    const items = (r.expenses || []).slice().sort((a, b) =>
+      a.spentAt.localeCompare(b.spentAt) || a.category.localeCompare(b.category, 'ko') || a.id - b.id);
+    const expenses = XLSX.utils.aoa_to_sheet([
+      ['날짜', '카테고리', '금액'],
+      ...items.map((e) => [e.spentAt, e.category, e.amount]),
+      ['합계', '', r.total],
+    ]);
+    styleSheet(expenses, { 2: '#,##0' });
+    expenses['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }];
+
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, categories, '카테고리별 합계');
+    XLSX.utils.book_append_sheet(book, expenses, '지출 목록');
+    XLSX.writeFile(book, '가계부_' + r.month + '.xlsx');
+  }
+
+  // 파일 생성이 순식간에 끝나므로, 잠시 버튼을 꺼 두어 연속 클릭으로 여러 번 받아지지 않게 한다
+  $('export').addEventListener('click', () => {
+    $('export').disabled = true;
+    run(async () => {
+      if (typeof XLSX === 'undefined') throw new Error('엑셀 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요');
+      exportExcel();
+    }).finally(() => setTimeout(() => { $('export').disabled = false; }, 1500));
+  });
+
+  // 클릭한 열을 1순위로 올리고, 이미 1순위면 오름↔내림을 바꾼다
+  document.querySelectorAll('button.sort').forEach((btn) => btn.addEventListener('click', () => {
+    const key = btn.dataset.sort;
+    const other = Object.keys(SORT_LABELS).find((k) => k !== key);
+    const dir = sortKeys[0].key === key ? -sortKeys[0].dir : 1;
+    sortKeys = [{ key, dir }, { key: other, dir: 1 }];
+    if (lastReport) renderExpenses();
+  }));
+
+  $('budgetForm').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    run(async () => {
+      const verb = savedLimit == null ? '저장' : '수정';
+      await api('PUT', '/api/budgets/' + monthInput.value, { limit: Number($('budgetLimit').value) });
+      show(monthInput.value + ' 예산을 ' + verb + '했습니다', 'ok');
+      $('budgetLimit').value = '';
+      await loadReport();
+    });
+  });
+
+  function setError(field, message) {
+    $(field).classList.toggle('invalid', !!message);
+    $(field + 'Error').textContent = message || '';
+  }
+
+  function validateExpense() {
+    const amount = $('amount').value;
+    if (amount === '') setError('amount', '지출 금액을 입력하세요');
+    else if (Number(amount) <= 0) setError('amount', '지출 금액은 0보다 커야 합니다');
+    else setError('amount');
+    setError('category', $('category').value ? '' : '카테고리를 선택하세요');
+    return !$('amountError').textContent && !$('categoryError').textContent;
+  }
+
+  $('amount').addEventListener('input', () => setError('amount'));
+  $('category').addEventListener('change', () => setError('category'));
+
+  $('expenseForm').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    if (!validateExpense()) return;
+    run(async () => {
+      const body = { amount: Number($('amount').value), category: $('category').value };
+      if ($('spentAt').value) body.spentAt = $('spentAt').value;
+      const result = await api('POST', '/api/expenses', body);
+      if (result.budgetExceeded) show('예산을 초과했습니다! 이번 달 합계 ' + won(result.monthlyTotal), 'warn');
+      else show('지출을 등록했습니다', 'ok');
+      $('amount').value = ''; $('category').value = ''; $('spentAt').value = today();
+      const month = (body.spentAt || today()).slice(0, 7);
+      if (month !== monthInput.value) monthInput.value = month;
+      await loadReport();
+    });
+  });
+
+  run(loadReport);
+</script>
+</body>
+</html>
