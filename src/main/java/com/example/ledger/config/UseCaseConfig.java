@@ -1,13 +1,16 @@
 package com.example.ledger.config;
 
 import com.example.ledger.application.port.in.AddExpenseUseCase;
+import com.example.ledger.application.port.in.GetExpenseImageUseCase;
 import com.example.ledger.application.port.in.GetMonthlyReportUseCase;
 import com.example.ledger.application.port.in.SetBudgetUseCase;
 import com.example.ledger.application.port.out.BudgetAlertPort;
 import com.example.ledger.application.port.out.BudgetPort;
+import com.example.ledger.application.port.out.ExpenseImagePort;
 import com.example.ledger.application.port.out.LoadExpensesPort;
 import com.example.ledger.application.port.out.SaveExpensePort;
 import com.example.ledger.application.service.AddExpenseService;
+import com.example.ledger.application.service.GetExpenseImageService;
 import com.example.ledger.application.service.GetMonthlyReportService;
 import com.example.ledger.application.service.SetBudgetService;
 import org.springframework.context.annotation.Bean;
@@ -25,8 +28,14 @@ public class UseCaseConfig {
     AddExpenseUseCase addExpenseUseCase(SaveExpensePort saveExpensePort,
                                         LoadExpensesPort loadExpensesPort,
                                         BudgetPort budgetPort,
-                                        BudgetAlertPort budgetAlertPort) {
-        return new AddExpenseService(saveExpensePort, loadExpensesPort, budgetPort, budgetAlertPort);
+                                        BudgetAlertPort budgetAlertPort,
+                                        ExpenseImagePort expenseImagePort) {
+        return new AddExpenseService(saveExpensePort, loadExpensesPort, budgetPort, budgetAlertPort, expenseImagePort);
+    }
+
+    @Bean
+    GetExpenseImageUseCase getExpenseImageUseCase(ExpenseImagePort expenseImagePort) {
+        return new GetExpenseImageService(expenseImagePort);
     }
 
     @Bean
@@ -35,8 +44,9 @@ public class UseCaseConfig {
     }
 
     @Bean
-    GetMonthlyReportUseCase getMonthlyReportUseCase(LoadExpensesPort loadExpensesPort, BudgetPort budgetPort) {
-        return new GetMonthlyReportService(loadExpensesPort, budgetPort);
+    GetMonthlyReportUseCase getMonthlyReportUseCase(LoadExpensesPort loadExpensesPort, BudgetPort budgetPort,
+                                                    ExpenseImagePort expenseImagePort) {
+        return new GetMonthlyReportService(loadExpensesPort, budgetPort, expenseImagePort);
     }
 
     @Bean

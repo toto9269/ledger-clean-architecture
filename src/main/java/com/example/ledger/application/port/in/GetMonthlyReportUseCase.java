@@ -20,6 +20,7 @@ public interface GetMonthlyReportUseCase {
             List<Item> expenses) {
     }
 
-    record Item(long id, long amount, String category, LocalDate spentAt) {
+    /** memo 는 입력하지 않았으면 null, imageIds 는 이미지가 없으면 빈 목록 */
+    record Item(long id, long amount, String category, LocalDate spentAt, String memo, List<Long> imageIds) {
     }
 }

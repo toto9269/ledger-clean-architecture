@@ -10,3 +10,8 @@ spring:
   h2:
     console:
       enabled: true
+  # 이미지 규칙(장당 5MB, 5장)은 도메인이 검사한다. 여기서는 그보다 조금 넉넉한 바깥 한도만 둔다
+  servlet:
+    multipart:
+      max-file-size: 6MB
+      max-request-size: 32MB

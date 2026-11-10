@@ -1,24 +1,30 @@
 package com.example.ledger.application.service;
 
 import com.example.ledger.application.port.in.AddExpenseUseCase;
+import com.example.ledger.application.port.in.AddExpenseUseCase.ImageFile;
 import com.example.ledger.application.port.out.BudgetAlertPort;
 import com.example.ledger.application.port.out.BudgetPort;
+import com.example.ledger.application.port.out.ExpenseImagePort;
 import com.example.ledger.application.port.out.LoadExpensesPort;
 import com.example.ledger.application.port.out.SaveExpensePort;
 import com.example.ledger.domain.Budget;
 import com.example.ledger.domain.Expense;
+import com.example.ledger.domain.ExpenseImage;
 import com.example.ledger.domain.MonthlyExpenses;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 포트를 메모리 가짜로 바꿔 끼워, DB·Spring·알림 없이 유스케이스를 검증한다. */
 class AddExpenseServiceTest {
@@ -28,7 +34,7 @@ class AddExpenseServiceTest {
     private final InMemoryLedger ledger = new InMemoryLedger();
     private final List<String> alerts = new ArrayList<>();
     private final BudgetAlertPort alertPort = (budget, total) -> alerts.add(budget.getMonth() + ":" + total);
-    private final AddExpenseUseCase addExpense = new AddExpenseService(ledger, ledger, ledger, alertPort);
+    private final AddExpenseUseCase addExpense = new AddExpenseService(ledger, ledger, ledger, alertPort, ledger);
 
     @Test
     void 예산_안이면_알리지_않는다() {
@@ -60,20 +66,71 @@ class AddExpenseServiceTest {
         assertThat(alerts).isEmpty();
     }
 
-    private static AddExpenseUseCase.Command command(long amount) {
-        return new AddExpenseUseCase.Command(amount, "식비", LocalDate.of(2026, 10, 15));
+    @Test
+    void 이미지를_함께_저장한다() {
+        AddExpenseUseCase.Result result = addExpense.add(command(1_000, List.of(png(), png())));
+
+        assertThat(ledger.loadImageIds(List.of(result.expenseId())).get(result.expenseId())).hasSize(2);
     }
 
-    /** 세 개의 출력 포트를 메모리로 구현한 테스트용 저장소 */
-    private static class InMemoryLedger implements SaveExpensePort, LoadExpensesPort, BudgetPort {
+    @Test
+    void 이미지가_잘못되면_지출도_저장하지_않는다() {
+        List<ImageFile> images = List.of(png(), new ImageFile("text/html", new byte[]{1}));
+
+        assertThatThrownBy(() -> addExpense.add(command(1_000, images)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(ledger.loadMonthly(OCTOBER).getExpenses()).isEmpty();
+    }
+
+    private static AddExpenseUseCase.Command command(long amount) {
+        return command(amount, List.of());
+    }
+
+    private static AddExpenseUseCase.Command command(long amount, List<ImageFile> images) {
+        return new AddExpenseUseCase.Command(amount, "식비", LocalDate.of(2026, 10, 15), null, images);
+    }
+
+    private static ImageFile png() {
+        return new ImageFile("image/png", new byte[]{1, 2, 3});
+    }
+
+    /** 네 개의 출력 포트를 메모리로 구현한 테스트용 저장소 */
+    private static class InMemoryLedger implements SaveExpensePort, LoadExpensesPort, BudgetPort, ExpenseImagePort {
 
         private final List<Expense> expenses = new ArrayList<>();
         private final Map<YearMonth, Budget> budgets = new HashMap<>();
+        private final Map<Long, Long> imageOwners = new LinkedHashMap<>();
+        private final Map<Long, ExpenseImage> images = new HashMap<>();
+
+        @Override
+        public void saveAll(long expenseId, List<ExpenseImage> newImages) {
+            for (ExpenseImage image : newImages) {
+                long id = images.size() + 1;
+                images.put(id, image);
+                imageOwners.put(id, expenseId);
+            }
+        }
+
+        @Override
+        public Map<Long, List<Long>> loadImageIds(Collection<Long> expenseIds) {
+            Map<Long, List<Long>> result = new HashMap<>();
+            imageOwners.forEach((imageId, expenseId) -> {
+                if (expenseIds.contains(expenseId)) {
+                    result.computeIfAbsent(expenseId, k -> new ArrayList<>()).add(imageId);
+                }
+            });
+            return result;
+        }
+
+        @Override
+        public Optional<ExpenseImage> load(long imageId) {
+            return Optional.ofNullable(images.get(imageId));
+        }
 
         @Override
         public Expense save(Expense expense) {
             Expense saved = Expense.of((long) expenses.size() + 1,
-                    expense.getAmount(), expense.getCategory(), expense.getSpentAt());
+                    expense.getAmount(), expense.getCategory(), expense.getSpentAt(), expense.getMemo());
             expenses.add(saved);
             return saved;
         }

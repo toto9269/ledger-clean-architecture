@@ -3,12 +3,15 @@ package com.example.ledger.application.service;
 import com.example.ledger.application.port.in.AddExpenseUseCase;
 import com.example.ledger.application.port.out.BudgetAlertPort;
 import com.example.ledger.application.port.out.BudgetPort;
+import com.example.ledger.application.port.out.ExpenseImagePort;
 import com.example.ledger.application.port.out.LoadExpensesPort;
 import com.example.ledger.application.port.out.SaveExpensePort;
 import com.example.ledger.domain.Budget;
 import com.example.ledger.domain.Expense;
+import com.example.ledger.domain.ExpenseImage;
 
 import java.time.YearMonth;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -21,21 +24,33 @@ public class AddExpenseService implements AddExpenseUseCase {
     private final LoadExpensesPort loadExpensesPort;
     private final BudgetPort budgetPort;
     private final BudgetAlertPort budgetAlertPort;
+    private final ExpenseImagePort expenseImagePort;
 
     public AddExpenseService(SaveExpensePort saveExpensePort,
                              LoadExpensesPort loadExpensesPort,
                              BudgetPort budgetPort,
-                             BudgetAlertPort budgetAlertPort) {
+                             BudgetAlertPort budgetAlertPort,
+                             ExpenseImagePort expenseImagePort) {
         this.saveExpensePort = saveExpensePort;
         this.loadExpensesPort = loadExpensesPort;
         this.budgetPort = budgetPort;
         this.budgetAlertPort = budgetAlertPort;
+        this.expenseImagePort = expenseImagePort;
     }
 
     @Override
     public Result add(Command command) {
-        Expense saved = saveExpensePort.save(
-                Expense.create(command.amount(), command.category(), command.spentAt()));
+        // 지출과 이미지를 모두 검증한 뒤에 저장한다. 이미지가 잘못되면 지출도 남기지 않는다
+        Expense expense = Expense.create(command.amount(), command.category(), command.spentAt(), command.memo());
+        ExpenseImage.checkCount(command.images().size());
+        List<ExpenseImage> images = command.images().stream()
+                .map(file -> new ExpenseImage(file.contentType(), file.data()))
+                .toList();
+
+        Expense saved = saveExpensePort.save(expense);
+        if (!images.isEmpty()) {
+            expenseImagePort.saveAll(saved.getId(), images);
+        }
 
         YearMonth month = YearMonth.from(saved.getSpentAt());
         long monthlyTotal = loadExpensesPort.loadMonthly(month).total();

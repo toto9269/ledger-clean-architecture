@@ -58,6 +58,8 @@
   .section-head h2 { margin: 0; }
   tfoot td { font-weight: 700; border-bottom: none; }
   button.sort { background: none; color: inherit; padding: 0; width: auto; font-size: inherit; }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .thumbs img { display: block; width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -104,8 +106,14 @@
           <option value="" disabled selected>선택하세요</option>
         </select>
         <p class="field-error" id="categoryError"></p>
+        <label for="memo">메모 (선택)</label>
+        <input id="memo" type="text" maxlength="100" placeholder="예: 팀 점심">
+        <label for="images">이미지 (선택 · 최대 5장, 장당 5MB)</label>
+        <input id="images" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple>
+        <p class="field-error" id="imagesError"></p>
         <label for="spentAt">날짜</label>
         <input id="spentAt" type="date">
+        <p class="field-error" id="spentAtError"></p>
         <button type="submit">등록</button>
       </form>
     </section>
@@ -128,6 +136,8 @@
       <thead><tr>
         <th><button type="button" class="sort" data-sort="spentAt">날짜</button></th>
         <th><button type="button" class="sort" data-sort="category">카테고리</button></th>
+        <th>메모</th>
+        <th>이미지</th>
         <th class="num">금액</th>
       </tr></thead>
       <tbody id="expenses"></tbody>
@@ -143,9 +153,10 @@
   const CATEGORIES = ['식비', '교통비', '유흥', '경조사', '생활용품', '기타'];
   let savedLimit = null;
   let lastReport = null;
-  // 앞에 있는 키가 우선. 기본은 날짜 → 카테고리 오름차순
-  let sortKeys = [{ key: 'spentAt', dir: 1 }, { key: 'category', dir: 1 }];
+  // 앞에 있는 키가 우선. 날짜는 최근 날짜부터(내림차순), 카테고리는 가나다순으로 시작한다
   const SORT_LABELS = { spentAt: '날짜', category: '카테고리' };
+  const DEFAULT_DIR = { spentAt: -1, category: 1 };
+  let sortKeys = [{ key: 'spentAt', dir: DEFAULT_DIR.spentAt }, { key: 'category', dir: DEFAULT_DIR.category }];
 
   function compareExpenses(a, b) {
     for (const { key, dir } of sortKeys) {
@@ -183,10 +194,12 @@
   }
 
   async function api(method, path, body) {
+    // FormData(이미지 업로드)는 브라우저가 multipart 헤더를 붙이도록 그대로 보낸다
+    const isForm = body instanceof FormData;
     const res = await fetch(path, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined,
+      headers: body && !isForm ? { 'Content-Type': 'application/json' } : {},
+      body: isForm ? body : body ? JSON.stringify(body) : undefined,
     });
     const data = res.status === 204 ? null : await res.json().catch(() => null);
     if (!res.ok) throw new Error((data && (data.message || data.error)) || '요청 실패 (' + res.status + ')');
@@ -195,9 +208,10 @@
 
   function row(cells) {
     const tr = document.createElement('tr');
-    cells.forEach(([text, cls]) => {
+    cells.forEach(([content, cls]) => {
       const td = document.createElement('td');
-      td.textContent = text;
+      if (content instanceof Node) td.appendChild(content);
+      else td.textContent = content;
       if (cls) td.className = cls;
       tr.appendChild(td);
     });
@@ -257,22 +271,67 @@
     });
     const list = $('expenses');
     list.replaceChildren();
-    if (!items.length) list.appendChild(emptyRow(3, '지출이 없습니다'));
-    items.forEach((e) => list.appendChild(row([[e.spentAt], [e.category], [won(e.amount), 'num']])));
+    if (!items.length) list.appendChild(emptyRow(5, '지출이 없습니다'));
+    items.forEach((e) => list.appendChild(row([[e.spentAt], [e.category], [e.memo || ''], [thumbnails(e.imageIds || [])], [won(e.amount), 'num']])));
     const sum = items.reduce((acc, e) => acc + e.amount, 0);
-    $('expensesFoot').replaceChildren(row([['합계 (' + items.length + '건)'], [''], [won(sum), 'num']]));
+    $('expensesFoot').replaceChildren(row([['합계 (' + items.length + '건)'], [''], [''], [''], [won(sum), 'num']]));
+  }
+
+  // 작은 썸네일을 나열하고, 누르면 원본을 새 탭에서 연다
+  function thumbnails(imageIds) {
+    const box = document.createElement('div');
+    box.className = 'thumbs';
+    imageIds.forEach((id) => {
+      const link = document.createElement('a');
+      link.href = '/api/expenses/images/' + id;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      const img = document.createElement('img');
+      img.src = link.href;
+      img.alt = '지출 이미지';
+      img.loading = 'lazy';
+      link.appendChild(img);
+      box.appendChild(link);
+    });
+    return box;
   }
 
   async function run(action) {
     try { await action(); } catch (e) { show(e.message, 'error'); }
   }
 
-  monthInput.value = today().slice(0, 7);
-  $('spentAt').value = today();
+  const thisMonth = today().slice(0, 7);
+  let currentMonth = thisMonth;
+
+  function lastDay(month) {
+    const [y, m] = month.split('-').map(Number);
+    return month + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0');
+  }
+
+  // 지출 날짜는 선택한 월 안에서만 고를 수 있다. 기본값은 오늘(이번 달이면), 아니면 그 달 1일
+  function resetSpentAt() {
+    const el = $('spentAt');
+    el.min = currentMonth + '-01';
+    el.max = lastDay(currentMonth);
+    el.value = today().startsWith(currentMonth) ? today() : el.min;
+    setError('spentAt');
+  }
+
+  monthInput.max = thisMonth;
+  monthInput.value = thisMonth;
+  resetSpentAt();
   monthInput.addEventListener('change', () => {
+    // 이번 달 이후는 막고 직전에 보던 달로 되돌린다
+    if (!monthInput.value || monthInput.value > thisMonth) {
+      if (monthInput.value) show(thisMonth + ' 이후의 월은 선택할 수 없습니다', 'error');
+      monthInput.value = currentMonth;
+      return;
+    }
+    currentMonth = monthInput.value;
     show('');
     $('budgetLimit').value = '';
     setError('budgetLimit');
+    resetSpentAt();
     run(loadReport);
   });
 
@@ -296,7 +355,8 @@
     }
   }
 
-  // sheet1 은 카테고리별 합계(화면과 같은 6개 + 기타 데이터), sheet2 는 날짜 → 카테고리 순 지출 목록
+  // sheet1 은 카테고리별 합계(화면과 같은 6개 + 기타 데이터),
+  // sheet2 는 화면 기본 정렬과 같은 순서(최근 날짜 → 카테고리)의 지출 목록
   function exportExcel() {
     const r = lastReport;
     const totals = r.totalByCategory || {};
@@ -309,14 +369,14 @@
     categories['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 14 }];
 
     const items = (r.expenses || []).slice().sort((a, b) =>
-      a.spentAt.localeCompare(b.spentAt) || a.category.localeCompare(b.category, 'ko') || a.id - b.id);
+      b.spentAt.localeCompare(a.spentAt) || a.category.localeCompare(b.category, 'ko') || a.id - b.id);
     const expenses = XLSX.utils.aoa_to_sheet([
-      ['날짜', '카테고리', '금액'],
-      ...items.map((e) => [e.spentAt, e.category, e.amount]),
-      ['합계', '', r.total],
+      ['날짜', '카테고리', '메모', '금액'],
+      ...items.map((e) => [e.spentAt, e.category, e.memo || '', e.amount]),
+      ['합계', '', '', r.total],
     ]);
-    styleSheet(expenses, { 2: '#,##0' });
-    expenses['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }];
+    styleSheet(expenses, { 3: '#,##0' });
+    expenses['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 14 }];
 
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, categories, '카테고리별 합계');
@@ -337,8 +397,8 @@
   document.querySelectorAll('button.sort').forEach((btn) => btn.addEventListener('click', () => {
     const key = btn.dataset.sort;
     const other = Object.keys(SORT_LABELS).find((k) => k !== key);
-    const dir = sortKeys[0].key === key ? -sortKeys[0].dir : 1;
-    sortKeys = [{ key, dir }, { key: other, dir: 1 }];
+    const dir = sortKeys[0].key === key ? -sortKeys[0].dir : DEFAULT_DIR[key];
+    sortKeys = [{ key, dir }, { key: other, dir: DEFAULT_DIR[other] }];
     if (lastReport) renderExpenses();
   }));
 
@@ -364,24 +424,40 @@
     else if (Number(amount) <= 0) setError('amount', '지출 금액은 0보다 커야 합니다');
     else setError('amount');
     setError('category', $('category').value ? '' : '카테고리를 선택하세요');
-    return !$('amountError').textContent && !$('categoryError').textContent;
+    const d = $('spentAt');
+    if (!d.value) setError('spentAt', '날짜를 선택하세요');
+    else if (d.value < d.min || d.value > d.max) setError('spentAt', currentMonth + ' 안의 날짜만 선택할 수 있습니다');
+    else setError('spentAt');
+    const files = [...$('images').files];
+    if (files.length > 5) setError('images', '이미지는 5장까지 올릴 수 있습니다');
+    else if (files.some((f) => !IMAGE_TYPES.includes(f.type))) setError('images', '이미지는 JPG, PNG, GIF, WEBP만 올릴 수 있습니다');
+    else if (files.some((f) => f.size > 5 * 1024 * 1024)) setError('images', '이미지는 한 장에 5MB 이하여야 합니다');
+    else setError('images');
+    return !$('amountError').textContent && !$('categoryError').textContent
+      && !$('spentAtError').textContent && !$('imagesError').textContent;
   }
+
+  const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  $('images').addEventListener('change', () => setError('images'));
 
   $('amount').addEventListener('input', () => setError('amount'));
   $('category').addEventListener('change', () => setError('category'));
+  $('spentAt').addEventListener('change', () => setError('spentAt'));
 
   $('expenseForm').addEventListener('submit', (ev) => {
     ev.preventDefault();
     if (!validateExpense()) return;
     run(async () => {
-      const body = { amount: Number($('amount').value), category: $('category').value };
-      if ($('spentAt').value) body.spentAt = $('spentAt').value;
-      const result = await api('POST', '/api/expenses', body);
+      const form = new FormData();
+      form.append('amount', $('amount').value);
+      form.append('category', $('category').value);
+      form.append('spentAt', $('spentAt').value);
+      form.append('memo', $('memo').value);
+      [...$('images').files].forEach((file) => form.append('images', file));
+      const result = await api('POST', '/api/expenses', form);
       if (result.budgetExceeded) show('예산을 초과했습니다! 이번 달 합계 ' + won(result.monthlyTotal), 'warn');
       else show('지출을 등록했습니다', 'ok');
-      $('amount').value = ''; $('category').value = ''; $('spentAt').value = today();
-      const month = (body.spentAt || today()).slice(0, 7);
-      if (month !== monthInput.value) monthInput.value = month;
+      $('amount').value = ''; $('category').value = ''; $('memo').value = ''; $('images').value = ''; resetSpentAt();
       await loadReport();
     });
   });
