@@ -47,6 +47,7 @@ config: 유스케이스 구현에 포트 구현체를 넣어 조립
 | [SetBudgetUseCase](src/main/java/com/example/ledger/application/port/in/SetBudgetUseCase.java) | 월 예산 설정 | 월과 금액 |
 | [GetMonthlyReportUseCase](src/main/java/com/example/ledger/application/port/in/GetMonthlyReportUseCase.java) | 월 리포트 조회 | `Report`(합계, 예산, 남은 예산, 카테고리별 합계, 지출 목록). 지출마다 메모와 이미지 id 목록 포함 |
 | [GetExpenseImageUseCase](src/main/java/com/example/ledger/application/port/in/GetExpenseImageUseCase.java) | 이미지 한 장 조회 | 이미지 id를 받아 형식과 내용을 돌려줌 |
+| [UpdateExpenseUseCase](src/main/java/com/example/ledger/application/port/in/UpdateExpenseUseCase.java) | 지출 변경 (금액, 카테고리, 날짜, 메모. 이미지는 그대로) | `Command`(지출 id, 금액, 카테고리, 날짜, 메모)를 받아 `Result`(지출 id, 바뀐 날짜가 속한 달의 합계, 예산 초과 여부)를 돌려줌 |
 | [DeleteExpensesUseCase](src/main/java/com/example/ledger/application/port/in/DeleteExpensesUseCase.java) | 지출 여러 건 삭제 (딸린 이미지 포함) | 지출 id 목록을 받아 지운 건수를 돌려줌. 없는 지출이 하나라도 섞이면 아무것도 지우지 않음 |
 
 ---
@@ -61,6 +62,7 @@ config: 유스케이스 구현에 포트 구현체를 넣어 조립
 |---|---|
 | [SaveExpensePort](src/main/java/com/example/ledger/application/port/out/SaveExpensePort.java) | 지출 저장 (저장 후 id가 채워진 지출을 돌려줌) |
 | [LoadExpensesPort](src/main/java/com/example/ledger/application/port/out/LoadExpensesPort.java) | 한 달 지출 조회 |
+| [UpdateExpensePort](src/main/java/com/example/ledger/application/port/out/UpdateExpensePort.java) | 이미 저장된 지출 변경 (없는 지출이면 `false`) |
 | [DeleteExpensePort](src/main/java/com/example/ledger/application/port/out/DeleteExpensePort.java) | 지출 여러 건 삭제 (실제로 지운 건수를 돌려줌) |
 | [BudgetPort](src/main/java/com/example/ledger/application/port/out/BudgetPort.java) | 예산 저장과 조회 |
 | [ExpenseImagePort](src/main/java/com/example/ledger/application/port/out/ExpenseImagePort.java) | 이미지 저장, 지출별 이미지 id 조회(이미지 내용은 읽지 않음), 이미지 한 장 조회, 지출에 딸린 이미지 삭제 |
@@ -80,6 +82,7 @@ config: 유스케이스 구현에 포트 구현체를 넣어 조립
 | [SetBudgetService](src/main/java/com/example/ledger/application/service/SetBudgetService.java) | `Budget`을 만들어(규칙 검사) 저장 |
 | [GetMonthlyReportService](src/main/java/com/example/ledger/application/service/GetMonthlyReportService.java) | 월 지출, 예산, 이미지 id를 모아 `Report`로 만듦 |
 | [GetExpenseImageService](src/main/java/com/example/ledger/application/service/GetExpenseImageService.java) | 포트로 이미지를 읽어 돌려줌 |
+| [UpdateExpenseService](src/main/java/com/example/ledger/application/service/UpdateExpenseService.java) | ① `Expense`를 새로 만들며 규칙 재검사 → ② 변경 저장(없는 지출이면 예외) → ③ 바뀐 날짜가 속한 달의 합계 계산 → ④ 예산을 넘었으면 등록할 때처럼 알림 포트 호출 |
 | [DeleteExpensesService](src/main/java/com/example/ledger/application/service/DeleteExpensesService.java) | ① 빈 목록이면 거부 → ② 딸린 이미지를 먼저 삭제(고아 행 방지) → ③ 지출 삭제 → ④ 지운 건수가 요청과 다르면 예외. 트랜잭션 안에서 실행되므로 예외가 나면 ②·③이 모두 되돌려짐 |
 
 ---
@@ -92,7 +95,7 @@ HTTP 요청을 유스케이스 명령으로 바꿔 넘깁니다. 비즈니스 �
 
 | 파일 | API |
 |---|---|
-| [ExpenseController](src/main/java/com/example/ledger/adapter/in/web/ExpenseController.java) | `POST /api/expenses`: JSON 등록, 또는 이미지를 함께 보내는 multipart 등록(화면이 사용). 날짜가 없으면 오늘로 등록<br>`GET /api/expenses/images/{id}`: 이미지 원본 (하루 캐시, `X-Content-Type-Options: nosniff`)<br>`DELETE /api/expenses?ids=1,2,3`: 여러 건 삭제, `{"deleted": 지운 건수}`를 돌려줌 |
+| [ExpenseController](src/main/java/com/example/ledger/adapter/in/web/ExpenseController.java) | `POST /api/expenses`: JSON 등록, 또는 이미지를 함께 보내는 multipart 등록(화면이 사용). 날짜가 없으면 오늘로 등록<br>`GET /api/expenses/images/{id}`: 이미지 원본 (하루 캐시, `X-Content-Type-Options: nosniff`)<br>`PUT /api/expenses/{id}`: 지출 변경 (JSON: 금액, 카테고리, 날짜, 메모). 금액과 날짜는 필수<br>`DELETE /api/expenses?ids=1,2,3`: 여러 건 삭제, `{"deleted": 지운 건수}`를 돌려줌 |
 | [BudgetController](src/main/java/com/example/ledger/adapter/in/web/BudgetController.java) | `PUT /api/budgets/{yyyy-MM}`: 월 예산 설정 |
 | [ReportController](src/main/java/com/example/ledger/adapter/in/web/ReportController.java) | `GET /api/reports/{yyyy-MM}`: 월 리포트 |
 | [ApiExceptionHandler](src/main/java/com/example/ledger/adapter/in/web/ApiExceptionHandler.java) | 도메인 규칙 위반과 업로드 크기 초과를 `400 {"message": ...}`로 바꿈 |
@@ -107,8 +110,8 @@ HTTP 요청을 유스케이스 명령으로 바꿔 넘깁니다. 비즈니스 �
 
 | 파일 | 역할 |
 |---|---|
-| [ExpenseJpaEntity](src/main/java/com/example/ledger/adapter/out/persistence/ExpenseJpaEntity.java), [ExpenseJpaRepository](src/main/java/com/example/ledger/adapter/out/persistence/ExpenseJpaRepository.java) | `expense` 테이블 (금액, 카테고리, 날짜, 메모). 삭제는 한 번의 `DELETE` 문으로 처리(`deleteByIdIn`) |
-| [ExpensePersistenceAdapter](src/main/java/com/example/ledger/adapter/out/persistence/ExpensePersistenceAdapter.java) | `SaveExpensePort`, `LoadExpensesPort`, `DeleteExpensePort` 구현. 엔티티와 도메인 객체를 서로 변환 |
+| [ExpenseJpaEntity](src/main/java/com/example/ledger/adapter/out/persistence/ExpenseJpaEntity.java), [ExpenseJpaRepository](src/main/java/com/example/ledger/adapter/out/persistence/ExpenseJpaRepository.java) | `expense` 테이블 (금액, 카테고리, 날짜, 메모). 변경은 엔티티의 `change`로, 삭제는 한 번의 `DELETE` 문으로 처리(`deleteByIdIn`) |
+| [ExpensePersistenceAdapter](src/main/java/com/example/ledger/adapter/out/persistence/ExpensePersistenceAdapter.java) | `SaveExpensePort`, `LoadExpensesPort`, `UpdateExpensePort`, `DeleteExpensePort` 구현. 엔티티와 도메인 객체를 서로 변환 |
 | [BudgetJpaEntity](src/main/java/com/example/ledger/adapter/out/persistence/BudgetJpaEntity.java), [BudgetJpaRepository](src/main/java/com/example/ledger/adapter/out/persistence/BudgetJpaRepository.java), [BudgetPersistenceAdapter](src/main/java/com/example/ledger/adapter/out/persistence/BudgetPersistenceAdapter.java) | 예산 테이블과 `BudgetPort` 구현 |
 | [ExpenseImageJpaEntity](src/main/java/com/example/ledger/adapter/out/persistence/ExpenseImageJpaEntity.java) | `expense_image` 테이블. 이미지 내용은 BLOB으로 저장 |
 | [ExpenseImageJpaRepository](src/main/java/com/example/ledger/adapter/out/persistence/ExpenseImageJpaRepository.java) | 목록용으로 이미지 내용 없이 id만 읽는 조회(`ImageRef`), 지출 id로 이미지를 한 번에 지우는 삭제(`deleteByExpenseIdIn`) |
@@ -130,7 +133,7 @@ JPA 엔티티는 도메인 객체와 따로 둡니다. 그래서 JPA가 도메�
 
 | 파일 | 역할 |
 |---|---|
-| [UseCaseConfig](src/main/java/com/example/ledger/config/UseCaseConfig.java) | 유스케이스 구현체 5개에 포트 구현체를 넣어 Spring 빈으로 만듦. 지출 삭제는 `TransactionTemplate`으로 감싸 하나의 트랜잭션으로 실행(서비스가 Spring을 모르므로 여기서 감쌈). 오늘 날짜 계산용 `Clock`도 빈으로 등록 |
+| [UseCaseConfig](src/main/java/com/example/ledger/config/UseCaseConfig.java) | 유스케이스 구현체 6개에 포트 구현체를 넣어 Spring 빈으로 만듦. 지출 삭제는 `TransactionTemplate`으로 감싸 하나의 트랜잭션으로 실행(서비스가 Spring을 모르므로 여기서 감쌈). 오늘 날짜 계산용 `Clock`도 빈으로 등록 |
 | [LedgerApplication](src/main/java/com/example/ledger/LedgerApplication.java) | Spring Boot 시작점 |
 
 ---
@@ -152,6 +155,7 @@ JPA 엔티티는 도메인 객체와 따로 둡니다. 그래서 JPA가 도메�
 | 월 요약 | 예산, 지출 합계, 남은 예산과 진행 막대. 예산을 넘으면 빨간색 |
 | 예산 설정 | 0 이하나 빈칸이면 저장 불가. 예산이 없던 달은 "저장", 있으면 "수정". 저장하면 입력칸을 비움 |
 | 지출 등록 | 금액, 카테고리(식비·교통비·유흥·경조사·생활용품·기타), 메모, 이미지(최대 5장), 날짜(선택한 월 안에서만, 기본값 오늘). 각 칸 검증 |
-| 카테고리별 합계 | 6개 카테고리를 항상 보여주고 비율과 금액 표시 |
-| 지출 목록 | 카테고리 필터, 날짜·카테고리 제목 클릭 정렬(기본은 최근 날짜순), 메모, 이미지 썸네일(누르면 원본), 합계. 행 체크박스와 전체 선택, "선택 삭제 (N)" 버튼(삭제 전 확인 창, 이미지도 함께 삭제). 화면에 안 보이게 된 행은 선택에서 자동으로 빠짐 |
+| 카테고리별 합계 | 6개 카테고리를 항상 보여주고 비율과 금액 표시. 제목 오른쪽에 그 달의 지출 합계 표시 |
+| 지출 목록 | 카테고리 필터, 날짜·카테고리 제목 클릭 정렬(기본은 최근 날짜순), 메모, 이미지 썸네일(누르면 원본), 합계. 행 체크박스와 전체 선택, "선택 삭제 (N)" 버튼(삭제 전 확인 창, 이미지도 함께 삭제). 화면에 안 보이게 된 행은 선택에서 자동으로 빠짐. 행을 누르면 지출 변경 팝업이 열림 |
+| 지출 변경 팝업 | 레이어 팝업(모달). 금액, 카테고리, 메모, 날짜(선택한 월 안)를 고치고 "변경"을 누르면 검사 후 저장하고 닫힘. 화면 전체(월 요약, 카테고리별 합계, 지출 목록)를 다시 그림. 이미지는 보기만 가능. 오류는 팝업 안에 표시. 취소, ESC, 바깥 클릭으로 저장 없이 닫힘 |
 | 엑셀 | 시트 1은 카테고리별 합계, 시트 2는 지출 목록(메모 포함, 최근 날짜순). 테두리와 제목 줄 서식 적용. 브라우저에서 `xlsx-js-style`(CDN)로 생성 |
