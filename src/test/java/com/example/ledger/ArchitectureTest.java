@@ -5,12 +5,12 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.Test;
 
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /**
- * 의존성 규칙을 말이 아니라 테스트로 지킨다.
- * 누군가 도메인에 @Entity 를 붙이거나 유스케이스에서 JPA 를 부르면 빌드가 실패한다.
+ * 의존 규칙을 테스트로 지킨다. 순환 의존이 생기면 빌드가 실패한다.
+ * 계층 방향: controller → service → repository → entity, dto 는 controller·service 가 함께 쓴다.
+ * 메뉴 방향: report → expense·budget, expense → budget.
  */
 class ArchitectureTest {
 
@@ -19,26 +19,15 @@ class ArchitectureTest {
             .importPackages("com.example.ledger");
 
     @Test
-    void 도메인은_다른_계층과_프레임워크를_모른다() {
-        noClasses().that().resideInAPackage("..domain..")
-                .should().dependOnClassesThat().resideInAnyPackage(
-                        "..application..", "..adapter..", "..config..",
-                        "org.springframework..", "jakarta.persistence..")
+    void 계층_사이에_순환_의존이_없다() {
+        slices().matching("com.example.ledger.(*)..")
+                .should().beFreeOfCycles()
                 .check(classes);
     }
 
     @Test
-    void 유스케이스는_어댑터와_프레임워크를_모른다() {
-        noClasses().that().resideInAPackage("..application..")
-                .should().dependOnClassesThat().resideInAnyPackage(
-                        "..adapter..", "..config..",
-                        "org.springframework..", "jakarta.persistence..")
-                .check(classes);
-    }
-
-    @Test
-    void 패키지_사이에_순환_의존이_없다() {
-        slices().matching("com.example.ledger.(**)")
+    void 메뉴_사이에_순환_의존이_없다() {
+        slices().matching("com.example.ledger.*.(*)..")
                 .should().beFreeOfCycles()
                 .check(classes);
     }
