@@ -144,6 +144,48 @@ class LedgerApiTest {
                 .andExpect(jsonPath("$.message").value("삭제할 지출을 선택하세요"));
     }
 
+    @Test
+    void 지출을_변경하면_합계와_카테고리별_합계에_반영되고_이미지는_그대로다() throws Exception {
+        long id = addWithImage("2026-03-05");
+
+        mockMvc.perform(put("/api/expenses/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\": 15000, \"category\": \"교통비\", \"spentAt\": \"2026-03-06\", \"memo\": \"택시\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.monthlyTotal").value(15000));
+
+        mockMvc.perform(get("/api/reports/2026-03"))
+                .andExpect(jsonPath("$.total").value(15000))
+                .andExpect(jsonPath("$.totalByCategory.교통비").value(15000))
+                .andExpect(jsonPath("$.totalByCategory.식비").doesNotExist())
+                .andExpect(jsonPath("$.expenses[0].memo").value("택시"))
+                .andExpect(jsonPath("$.expenses[0].spentAt").value("2026-03-06"))
+                .andExpect(jsonPath("$.expenses[0].imageIds.length()").value(1));
+    }
+
+    @Test
+    void 잘못된_값으로_변경하면_400이고_바뀌지_않는다() throws Exception {
+        long id = addWithImage("2026-02-05");
+
+        mockMvc.perform(put("/api/expenses/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\": 0, \"category\": \"식비\", \"spentAt\": \"2026-02-05\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("지출 금액은 0보다 커야 합니다"));
+
+        mockMvc.perform(get("/api/reports/2026-02"))
+                .andExpect(jsonPath("$.total").value(1000));
+    }
+
+    @Test
+    void 없는_지출을_변경하면_400을_돌려준다() throws Exception {
+        mockMvc.perform(put("/api/expenses/999999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\": 1000, \"category\": \"식비\", \"spentAt\": \"2026-02-05\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("이미 삭제됐거나 없는 지출입니다"));
+    }
+
     private long addWithImage(String spentAt) throws Exception {
         MvcResult result = mockMvc.perform(multipart("/api/expenses")
                         .file(new MockMultipartFile("images", "a.png", "image/png", new byte[]{1}))

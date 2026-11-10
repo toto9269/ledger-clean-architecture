@@ -59,9 +59,22 @@
   tfoot td { font-weight: 700; border-bottom: none; }
   button.sort { background: none; color: inherit; padding: 0; width: auto; font-size: inherit; }
   .head-actions { display: flex; align-items: center; gap: 8px; }
+  .section-total { font-weight: 700; font-variant-numeric: tabular-nums; }
   button.danger { background: var(--danger); width: auto; }
   input[type=checkbox] { width: 16px; height: 16px; padding: 0; margin: 0; vertical-align: middle; }
   th.check, td.check { width: 28px; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--bg); }
+  .modal-backdrop { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+                    padding: 16px; background: rgba(0, 0, 0, 0.45); }
+  .modal-backdrop[hidden] { display: none; }
+  .modal { width: 100%; max-width: 420px; max-height: calc(100vh - 32px); overflow: auto; padding: 20px;
+           background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .modal h2 { color: var(--text); font-size: 17px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .modal-actions button { width: auto; min-width: 80px; }
+  button.secondary { background: var(--line); color: var(--text); }
+  .muted { color: var(--muted); font-size: 13px; margin: 0; }
   .thumbs { display: flex; flex-wrap: wrap; gap: 4px; }
   .thumbs img { display: block; width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 </style>
@@ -124,7 +137,10 @@
   </div>
 
   <section class="card">
-    <h2>카테고리별 합계</h2>
+    <div class="section-head">
+      <h2>카테고리별 합계</h2>
+      <span class="section-total" id="categoryTotal"></span>
+    </div>
     <table>
       <thead><tr><th>카테고리</th><th class="num">비율</th><th class="num">금액</th></tr></thead>
       <tbody id="categories"></tbody>
@@ -153,6 +169,32 @@
     </table>
   </section>
 </main>
+
+<!-- 지출 목록의 행을 누르면 뜨는 변경 팝업 -->
+<div class="modal-backdrop" id="editModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <h2 id="editTitle">지출 변경</h2>
+    <form id="editForm" novalidate>
+      <label for="editAmount">금액 (원)</label>
+      <input id="editAmount" type="number" min="1" step="1">
+      <p class="field-error" id="editAmountError"></p>
+      <label for="editCategory">카테고리</label>
+      <select id="editCategory"></select>
+      <label for="editMemo">메모 (선택)</label>
+      <input id="editMemo" type="text" maxlength="100">
+      <label for="editSpentAt">날짜</label>
+      <input id="editSpentAt" type="date">
+      <p class="field-error" id="editSpentAtError"></p>
+      <label>이미지 (여기서는 바꿀 수 없음)</label>
+      <div id="editImages"></div>
+      <p class="field-error" id="editMsg" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" class="secondary" id="editCancel">취소</button>
+        <button type="submit" id="editSave">변경</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <script>
   const $ = (id) => document.getElementById(id);
@@ -250,6 +292,7 @@
     savedLimit = r.budgetLimit;
     updateBudgetSave();
 
+    $('categoryTotal').textContent = '지출 합계 ' + won(r.total);
     const cats = $('categories');
     cats.replaceChildren();
     // 정해진 6개는 지출이 없어도 0원으로 보인다
@@ -286,7 +329,13 @@
     const list = $('expenses');
     list.replaceChildren();
     if (!items.length) list.appendChild(emptyRow(6, '지출이 없습니다'));
-    items.forEach((e) => list.appendChild(row([[checkbox(e.id), 'check'], [e.spentAt], [e.category], [e.memo || ''], [thumbnails(e.imageIds || [])], [won(e.amount), 'num']])));
+    items.forEach((e) => {
+      const tr = row([[checkbox(e.id), 'check'], [e.spentAt], [e.category], [e.memo || ''], [thumbnails(e.imageIds || [])], [won(e.amount), 'num']]);
+      // 체크박스·썸네일을 누른 경우는 빼고, 행을 누르면 변경 팝업을 연다
+      tr.classList.add('clickable');
+      tr.addEventListener('click', (ev) => { if (!ev.target.closest('input, a')) openEdit(e); });
+      list.appendChild(tr);
+    });
     const sum = items.reduce((acc, e) => acc + e.amount, 0);
     $('expensesFoot').replaceChildren(row([[''], ['합계 (' + items.length + '건)'], [''], [''], [''], [won(sum), 'num']]));
     updateDeleteButton();
@@ -515,6 +564,68 @@
       await loadReport();
     });
   });
+
+  // ── 지출 변경 레이어 팝업 ──
+  let editing = null;
+
+  function openEdit(expense) {
+    editing = expense;
+    // 예전 카테고리(6개 밖)로 등록된 지출도 원래 값이 보이게 목록에 넣는다
+    const names = CATEGORIES.includes(expense.category) ? CATEGORIES : CATEGORIES.concat(expense.category);
+    $('editCategory').replaceChildren(...names.map((n) => new Option(n, n)));
+    $('editCategory').value = expense.category;
+    $('editAmount').value = expense.amount;
+    $('editMemo').value = expense.memo || '';
+    $('editSpentAt').min = $('spentAt').min;
+    $('editSpentAt').max = $('spentAt').max;
+    $('editSpentAt').value = expense.spentAt;
+    const ids = expense.imageIds || [];
+    if (ids.length) $('editImages').replaceChildren(thumbnails(ids));
+    else $('editImages').replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: '없음' }));
+    setError('editAmount'); setError('editSpentAt'); $('editMsg').textContent = '';
+    $('editModal').hidden = false;
+    $('editAmount').focus();
+  }
+
+  function closeEdit() {
+    $('editModal').hidden = true;
+    editing = null;
+  }
+
+  function validateEdit() {
+    const amount = $('editAmount').value;
+    setError('editAmount', amount === '' ? '지출 금액을 입력하세요' : Number(amount) <= 0 ? '지출 금액은 0보다 커야 합니다' : '');
+    const d = $('editSpentAt');
+    setError('editSpentAt', !d.value ? '날짜를 선택하세요'
+      : d.value < d.min || d.value > d.max ? currentMonth + ' 안의 날짜만 선택할 수 있습니다' : '');
+    return !$('editAmountError').textContent && !$('editSpentAtError').textContent;
+  }
+
+  $('editForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!validateEdit()) return;
+    $('editSave').disabled = true;
+    try {
+      const result = await api('PUT', '/api/expenses/' + editing.id, {
+        amount: Number($('editAmount').value), category: $('editCategory').value,
+        spentAt: $('editSpentAt').value, memo: $('editMemo').value,
+      });
+      closeEdit();
+      if (result.budgetExceeded) show('예산을 초과했습니다! 이번 달 합계 ' + won(result.monthlyTotal), 'warn');
+      else show('지출을 변경했습니다', 'ok');
+      await loadReport();   // 월 요약·카테고리별 합계·지출 목록을 모두 새로 그린다
+    } catch (e) {
+      $('editMsg').textContent = e.message;   // 팝업이 열려 있으므로 오류는 팝업 안에 보여준다
+    } finally {
+      $('editSave').disabled = false;
+    }
+  });
+
+  $('editAmount').addEventListener('input', () => setError('editAmount'));
+  $('editSpentAt').addEventListener('change', () => setError('editSpentAt'));
+  $('editCancel').addEventListener('click', closeEdit);
+  $('editModal').addEventListener('click', (ev) => { if (ev.target === $('editModal')) closeEdit(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !$('editModal').hidden) closeEdit(); });
 
   run(loadReport);
 </script>

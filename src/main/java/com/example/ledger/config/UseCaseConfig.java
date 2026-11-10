@@ -5,17 +5,20 @@ import com.example.ledger.application.port.in.DeleteExpensesUseCase;
 import com.example.ledger.application.port.in.GetExpenseImageUseCase;
 import com.example.ledger.application.port.in.GetMonthlyReportUseCase;
 import com.example.ledger.application.port.in.SetBudgetUseCase;
+import com.example.ledger.application.port.in.UpdateExpenseUseCase;
 import com.example.ledger.application.port.out.BudgetAlertPort;
 import com.example.ledger.application.port.out.BudgetPort;
 import com.example.ledger.application.port.out.DeleteExpensePort;
 import com.example.ledger.application.port.out.ExpenseImagePort;
 import com.example.ledger.application.port.out.LoadExpensesPort;
 import com.example.ledger.application.port.out.SaveExpensePort;
+import com.example.ledger.application.port.out.UpdateExpensePort;
 import com.example.ledger.application.service.AddExpenseService;
 import com.example.ledger.application.service.DeleteExpensesService;
 import com.example.ledger.application.service.GetExpenseImageService;
 import com.example.ledger.application.service.GetMonthlyReportService;
 import com.example.ledger.application.service.SetBudgetService;
+import com.example.ledger.application.service.UpdateExpenseService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -36,6 +39,14 @@ public class UseCaseConfig {
                                         BudgetAlertPort budgetAlertPort,
                                         ExpenseImagePort expenseImagePort) {
         return new AddExpenseService(saveExpensePort, loadExpensesPort, budgetPort, budgetAlertPort, expenseImagePort);
+    }
+
+    @Bean
+    UpdateExpenseUseCase updateExpenseUseCase(UpdateExpensePort updateExpensePort,
+                                              LoadExpensesPort loadExpensesPort,
+                                              BudgetPort budgetPort,
+                                              BudgetAlertPort budgetAlertPort) {
+        return new UpdateExpenseService(updateExpensePort, loadExpensesPort, budgetPort, budgetAlertPort);
     }
 
     /**

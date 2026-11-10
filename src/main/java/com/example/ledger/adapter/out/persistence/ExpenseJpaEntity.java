@@ -37,6 +37,14 @@ class ExpenseJpaEntity {
         this.memo = memo;
     }
 
+    /** 지출 내용을 바꾼다. 규칙 검사는 도메인 Expense 가 이미 마쳤다. */
+    void change(long amount, String category, LocalDate spentAt, String memo) {
+        this.amount = amount;
+        this.category = category;
+        this.spentAt = spentAt;
+        this.memo = memo;
+    }
+
     Long getId() {
         return id;
     }

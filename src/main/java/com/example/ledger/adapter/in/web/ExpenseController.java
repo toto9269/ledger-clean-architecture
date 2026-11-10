@@ -3,6 +3,7 @@ package com.example.ledger.adapter.in.web;
 import com.example.ledger.application.port.in.AddExpenseUseCase;
 import com.example.ledger.application.port.in.DeleteExpensesUseCase;
 import com.example.ledger.application.port.in.GetExpenseImageUseCase;
+import com.example.ledger.application.port.in.UpdateExpenseUseCase;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -35,14 +37,30 @@ class ExpenseController {
     private final AddExpenseUseCase addExpenseUseCase;
     private final GetExpenseImageUseCase getExpenseImageUseCase;
     private final DeleteExpensesUseCase deleteExpensesUseCase;
+    private final UpdateExpenseUseCase updateExpenseUseCase;
     private final Clock clock;
 
     ExpenseController(AddExpenseUseCase addExpenseUseCase, GetExpenseImageUseCase getExpenseImageUseCase,
-                      DeleteExpensesUseCase deleteExpensesUseCase, Clock clock) {
+                      DeleteExpensesUseCase deleteExpensesUseCase, UpdateExpenseUseCase updateExpenseUseCase,
+                      Clock clock) {
         this.addExpenseUseCase = addExpenseUseCase;
         this.getExpenseImageUseCase = getExpenseImageUseCase;
         this.deleteExpensesUseCase = deleteExpensesUseCase;
+        this.updateExpenseUseCase = updateExpenseUseCase;
         this.clock = clock;
+    }
+
+    /** 금액·카테고리·날짜·메모를 바꾼다. 이미지는 그대로 둔다. */
+    @PutMapping("/{expenseId}")
+    UpdateExpenseUseCase.Result update(@PathVariable long expenseId, @RequestBody UpdateExpenseRequest request) {
+        if (request.amount() == null) {
+            throw new IllegalArgumentException("지출 금액은 필수입니다");
+        }
+        if (request.spentAt() == null) {
+            throw new IllegalArgumentException("지출일은 필수입니다");
+        }
+        return updateExpenseUseCase.update(new UpdateExpenseUseCase.Command(
+                expenseId, request.amount(), request.category(), request.spentAt(), request.memo()));
     }
 
     /** 여러 건을 한 번에 지운다. 딸린 이미지도 함께 지워진다. 예: DELETE /api/expenses?ids=1,2,3 */
@@ -95,5 +113,8 @@ class ExpenseController {
 
     /** spentAt 을 비우면 오늘 날짜로 등록한다. memo 는 선택이다. */
     record AddExpenseRequest(Long amount, String category, LocalDate spentAt, String memo) {
+    }
+
+    record UpdateExpenseRequest(Long amount, String category, LocalDate spentAt, String memo) {
     }
 }
